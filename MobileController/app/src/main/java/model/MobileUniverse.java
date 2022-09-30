@@ -40,16 +40,14 @@ public class MobileUniverse {
     public void init() {
         String msg;
 
-        controlDroid.findDevice();
-
         while (true) {
-            /*
+
             msg = arduSocket.receivedMessage();
 
             while (msg == ArduSocket.NULLMESSAGE) {
                 msg = arduSocket.receivedMessage();
             }
-            */
+
             controlDroid.sendOrder("f");
         }
     }

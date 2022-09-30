@@ -6,6 +6,7 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
@@ -33,13 +34,13 @@ public class MainActivity extends AppCompatActivity {
     private PendingIntent pendingIntent;
 
     private UsbManager usbManager;
-
+    private UsbDevice usbDevice;
 
     private final BroadcastReceiver broadCastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent.getAction().equals(USBPERMISSION)) {
-                mobileUniverse.connectArduinoDevice();
+                mobileUniverse.connectArduinoDevice(usbDevice);
             }
         };
     };
@@ -54,8 +55,12 @@ public class MainActivity extends AppCompatActivity {
         ipText = (TextView) findViewById(R.id.ipTextView);
         portText = (TextView) findViewById(R.id.portTextView);
 
+        usbDevice = null;
         usbManager = (UsbManager) getSystemService(this.USB_SERVICE);
         pendingIntent = PendingIntent.getBroadcast(this, 0, new Intent(USBPERMISSION), PendingIntent.FLAG_MUTABLE);
+
+        IntentFilter intentFilter = new IntentFilter(USBPERMISSION);
+        registerReceiver(broadCastReceiver, intentFilter);
     }
 
     public void onClickConnect(View view) {
@@ -68,9 +73,11 @@ public class MainActivity extends AppCompatActivity {
 
     public void onClickArduino(View view) {
         mobileUniverse.setControlDroid(usbManager);
-        UsbDevice usbDevice = mobileUniverse.findArduinoDevice();
+        usbDevice = mobileUniverse.findArduinoDevice();
 
-        usbManager.requestPermission(usbDevice, pendingIntent);
+        if (usbDevice != null) {
+            usbManager.requestPermission(usbDevice, pendingIntent);
+        }
 
         debugText.setText(debugText.getText() + "\n" + "Connected to Arduino");
     }

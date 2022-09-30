@@ -25,7 +25,6 @@ public class ControlDroid {
 
     private UsbSerialDevice arduinoSerial;
     private UsbManager usbManager;
-    private UsbDevice usbDevice;
 
     ControlDroid(UsbManager manager) {
         arduinoSerial = NULLSERIALDEVICE;
