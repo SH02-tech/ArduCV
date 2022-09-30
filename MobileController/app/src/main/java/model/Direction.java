@@ -1,2 +1,3 @@
-package model;public class Direction {
-}
+package model;
+
+enum Direction {RIGHT, LEFT, FORWARD}

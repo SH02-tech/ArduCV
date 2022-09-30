@@ -54,11 +54,11 @@ class VideoCommander:
         msg = ""
 
         if order == Direction.FORWARD:
-            msg = "FORWARD"
+            msg = "f"
         elif order == Direction.LEFT:
-            msg = "LEFT"
+            msg = "l"
         elif order == Direction.RIGHT:
-            msg = "RIGHT"
+            msg = "r"
         
         if msg != "":
             self.clientsocket.send(bytes(msg,"utf-8"))
@@ -76,5 +76,5 @@ if __name__ == "__main__":
     c = VideoCommander(cv2.VideoCapture(0), s)
 
     print("Executing")
-    for i in range(60):
+    while True:
         print(c.SendOrder())
