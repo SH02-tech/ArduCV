@@ -70,7 +70,7 @@ if __name__ == "__main__":
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((socket.gethostname(), 1234))
+    s.bind(("192.168.1.103", 1234))
     s.listen(5)
 
     c = VideoCommander(cv2.VideoCapture(0), s)
