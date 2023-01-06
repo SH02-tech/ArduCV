@@ -11,3 +11,5 @@ and send data to Arduino (it is done like this because the phone is intended to
 be on the car). The __RobotManagement__ module captures commands from webcam and
 sends the information via TCP/IP protocol (intended to reach the 
 MobileController module). 
+
+Still in progress...
