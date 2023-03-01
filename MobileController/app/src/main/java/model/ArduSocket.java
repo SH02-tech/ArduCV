@@ -1,107 +1,256 @@
 package model;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
+import android.hardware.usb.UsbManager;
+import android.util.Log;
 
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.ObjectInputStream;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.net.SocketAddress;
-import java.net.UnknownHostException;
-import java.nio.charset.StandardCharsets;
+import com.felhr.usbserial.UsbSerialDevice;
+import com.felhr.usbserial.UsbSerialInterface;
 
-public class ArduSocket {
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
 
-    final static String NULLMESSAGE = "NULL";
+/**
+ * Created by Omar on 21/05/2017.
+ */
 
-    private boolean status;
-    private InputStream inputStream;
+public class ArduSocket implements UsbSerialInterface.UsbReadCallback {
+    private Context context;
+    private ArduinoListener listener;
 
-    ArduSocket(String host, int port) {
-        Socket socket = new Socket();
-        try {
-            connectInputStream(socket, host, port);
-        } catch (IOException e) {
-            e.printStackTrace();
+    private UsbDeviceConnection connection;
+    private UsbSerialDevice serialPort;
+    private UsbReceiver usbReceiver;
+    private UsbManager usbManager;
+    private UsbDevice lastArduinoAttached;
+
+    private int baudRate;
+    private boolean isOpened;
+    private List<Integer> vendorIds;
+    private List<Byte> bytesReceived;
+    private byte delimiter;
+
+    private static final String ACTION_USB_DEVICE_PERMISSION = "model.USB_PERMISSION";
+    private static final int DEFAULT_BAUD_RATE = 9600;
+    private static final byte DEFAULT_DELIMITER = '\n';
+
+    public ArduSocket(Context context, int baudRate) {
+        init(context, baudRate);
+    }
+
+    public ArduSocket(Context context) {
+        init(context, DEFAULT_BAUD_RATE);
+    }
+
+    private void init(Context context, int baudRate) {
+        this.context = context;
+        this.usbReceiver = new UsbReceiver();
+        this.usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+        this.baudRate = baudRate;
+        this.isOpened = false;
+        this.vendorIds = new ArrayList<>();
+        this.vendorIds.add(9025);
+        this.bytesReceived = new ArrayList<>();
+        this.delimiter = DEFAULT_DELIMITER;
+    }
+
+    public void setArduinoListener(ArduinoListener listener) {
+        this.listener = listener;
+
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        intentFilter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        intentFilter.addAction(ACTION_USB_DEVICE_PERMISSION);
+        context.registerReceiver(usbReceiver, intentFilter);
+
+        lastArduinoAttached = getAttachedArduino();
+        if (lastArduinoAttached != null && listener != null) {
+            listener.onArduinoAttached(lastArduinoAttached);
         }
-        this.status = true;
     }
 
-    private void connectInputStream(Socket socket, String host, int port) throws IOException {
-        Socket auxSocket = socket;
-        SocketAddress socketAddress = new InetSocketAddress(InetAddress.getByName(host), port);
+    public void unsetArduinoListener() {
+        this.listener = null;
+    }
 
-        try {
-            auxSocket.connect(socketAddress);
-        } catch (IOException e) {
-            e.printStackTrace();
+    public void open(UsbDevice device) {
+        PendingIntent permissionIntent = PendingIntent.getBroadcast(context, 0, new Intent(ACTION_USB_DEVICE_PERMISSION), 0);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_USB_DEVICE_PERMISSION);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        context.registerReceiver(usbReceiver, filter);
+        usbManager.requestPermission(device, permissionIntent);
+    }
+
+    public void reopen() {
+        open(lastArduinoAttached);
+    }
+
+    public void close() {
+        if (serialPort != null) {
+            serialPort.close();
+        }
+        if (connection != null) {
+            connection.close();
         }
 
-        inputStream = socket.getInputStream();
+        isOpened = false;
+        context.unregisterReceiver(usbReceiver);
     }
 
-    public void isOn(boolean status) {
-        this.status = status;
+    public void send(byte[] bytes) {
+        if (serialPort != null) {
+            serialPort.write(bytes);
+        }
     }
 
-    String receivedMessage() {
-        String msg = NULLMESSAGE;
+    public void setDelimiter(byte delimiter){
+        this.delimiter = delimiter;
+    }
 
-        if (status) {
-            byte[] buffer = new byte[1];
+    public void setBaudRate(int baudRate){
+        this.baudRate = baudRate;
+    }
 
-            try {
-                if (inputStream.read(buffer) > 0) {
-                    msg = "" + new String(buffer, 0, 1);
+    public void addVendorId(int id){
+        vendorIds.add(id);
+    }
+
+    private class UsbReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            UsbDevice device;
+            if (intent.getAction() != null) {
+                switch (intent.getAction()) {
+                    case UsbManager.ACTION_USB_DEVICE_ATTACHED:
+                        device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                        if (hasId(device.getVendorId())) {
+                            lastArduinoAttached = device;
+                            if (listener != null) {
+                                listener.onArduinoAttached(device);
+                            }
+                        }
+                        break;
+                    case UsbManager.ACTION_USB_DEVICE_DETACHED:
+                        device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                        if (hasId(device.getVendorId())) {
+                            if (listener != null) {
+                                listener.onArduinoDetached();
+                            }
+                        }
+                        break;
+                    case ACTION_USB_DEVICE_PERMISSION:
+                        if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                            device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                            if (hasId(device.getVendorId())) {
+                                connection = usbManager.openDevice(device);
+                                serialPort = UsbSerialDevice.createUsbSerialDevice(device, connection);
+                                if (serialPort != null) {
+                                    if (serialPort.open()) {
+                                        serialPort.setBaudRate(baudRate);
+                                        serialPort.setDataBits(UsbSerialInterface.DATA_BITS_8);
+                                        serialPort.setStopBits(UsbSerialInterface.STOP_BITS_1);
+                                        serialPort.setParity(UsbSerialInterface.PARITY_NONE);
+                                        serialPort.setFlowControl(UsbSerialInterface.FLOW_CONTROL_OFF);
+                                        serialPort.read(ArduSocket.this);
+
+                                        isOpened = true;
+
+                                        if (listener != null) {
+                                            listener.onArduinoOpened();
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (listener != null) {
+                            listener.onUsbPermissionDenied();
+                        }
+                        break;
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
             }
-
-        }
-
-        return msg;
-    }
-    /*
-    public static void main(String[] args) throws IOException, InterruptedException {
-        ArduSocket ad = new ArduSocket("192.168.1.103", 1234);
-
-        while (true) {
-            System.out.println(ad.receivedMessage());
-            Thread.sleep(1000);
         }
     }
-*/
-    /*
-    public static void main(String[] args) throws IOException, ClassNotFoundException {
-        System.out.println("Probando");
-        InetAddress host = InetAddress.getLocalHost();
-        Socket socket = new Socket();
-        SocketAddress socketAddress = new InetSocketAddress(host, 1234);
-        socket.connect(socketAddress);
 
-        /*
-        DataInputStream dIn = new DataInputStream(socket.getInputStream());
-
-        for (int i = 0; i< 10; ++i) {
-            String msg = Integer(dIn.readInt()).toString();
-            System.out.println("Message A: " + msg);
+    private UsbDevice getAttachedArduino() {
+        HashMap<String, UsbDevice> map = usbManager.getDeviceList();
+        for (UsbDevice device : map.values()) {
+            if (hasId(device.getVendorId())) {
+                return device;
+            }
         }
-
-        dIn.close();
-
-
-        InputStream is = socket.getInputStream();
-        int read;
-        byte[] buffer = new byte[1];
-
-        while((read = is.read(buffer)) != -1) {
-            String output = new String(buffer);
-            System.out.print(output + "\n");
-            System.out.flush();
-        };
-
+        return null;
     }
-     */
+
+    private List<Integer> indexOf(byte[] bytes, byte b){
+        List<Integer> idx = new ArrayList<>();
+        for(int i=0 ; i<bytes.length ; i++){
+            if(bytes[i] == b){
+                idx.add(i);
+            }
+        }
+        return idx;
+    }
+
+    private List<Byte> toByteList(byte[] bytes){
+        List<Byte> list = new ArrayList<>();
+        for(byte b : bytes){
+            list.add(b);
+        }
+        return list;
+    }
+
+    private byte[] toByteArray(List<Byte> bytes){
+        byte[] array = new byte[bytes.size()];
+        for(int i=0 ; i<bytes.size() ; i++){
+            array[i] = bytes.get(i);
+        }
+        return array;
+    }
+
+    @Override
+    public void onReceivedData(byte[] bytes) {
+        if (bytes.length != 0) {
+            List<Integer> idx = indexOf(bytes, delimiter);
+            if(idx.isEmpty()){
+                bytesReceived.addAll(toByteList(bytes));
+            } else{
+                int offset = 0;
+                for(int index : idx){
+                    byte[] tmp = Arrays.copyOfRange(bytes, offset, index);
+                    bytesReceived.addAll(toByteList(tmp));
+                    if(listener != null) {
+                        listener.onArduinoMessage(toByteArray(bytesReceived));
+                    }
+                    bytesReceived.clear();
+                    offset = index + 1;
+                }
+
+                if(offset < bytes.length){
+                    byte[] tmp = Arrays.copyOfRange(bytes, offset, bytes.length);
+                    bytesReceived.addAll(toByteList(tmp));
+                }
+            }
+        }
+    }
+
+    public boolean isOpened() {
+        return isOpened;
+    }
+
+    private boolean hasId(int id) {
+        Log.i(getClass().getSimpleName(), "Vendor id : "+id);
+        for(int vendorId : vendorIds){
+            if(vendorId==id){
+                return true;
+            }
+        }
+        return false;
+    }
 }
