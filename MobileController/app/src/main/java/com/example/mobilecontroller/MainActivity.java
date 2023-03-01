@@ -11,79 +11,144 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
 import android.os.Bundle;
+import android.os.Handler;
 import android.view.View;
 import android.widget.TextView;
 
-import com.felhr.usbserial.UsbSerialDevice;
-import com.felhr.usbserial.UsbSerialInterface;
-
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-import model.MobileUniverse;
+import model.ArduSocket;
+import model.ArduinoListener;
+import model.CommandSocket;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements ArduinoListener {
 
-    private final static String USBPERMISSION = "com.example.mobilecontroller.USB_PERMISSION";
-
-    private MobileUniverse mobileUniverse;
-
+    private ArduSocket arduSocket;
+    private CommandSocket commandSocket;
     private TextView debugText;
     private TextView ipText;
     private TextView portText;
 
-    private PendingIntent pendingIntent;
+    private ListenThread listenThread;
 
-    private UsbManager usbManager;
-    private UsbDevice usbDevice;
-
-    private final BroadcastReceiver broadCastReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent.getAction().equals(USBPERMISSION)) {
-                mobileUniverse.connectArduinoDevice(usbDevice);
-            }
-        };
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        mobileUniverse = new MobileUniverse();
+        arduSocket = new ArduSocket(this);
+
+        listenThread = new ListenThread();
 
         debugText = (TextView) findViewById(R.id.debugText);
         ipText = (TextView) findViewById(R.id.ipTextView);
         portText = (TextView) findViewById(R.id.portTextView);
 
-        usbDevice = null;
-        usbManager = (UsbManager) getSystemService(this.USB_SERVICE);
-        pendingIntent = PendingIntent.getBroadcast(this, 0, new Intent(USBPERMISSION), PendingIntent.FLAG_MUTABLE);
-
-        IntentFilter intentFilter = new IntentFilter(USBPERMISSION);
-        registerReceiver(broadCastReceiver, intentFilter);
+        arduSocket = new ArduSocket(this);
+        commandSocket = new CommandSocket();
     }
 
     public void onClickConnect(View view) {
+
+        String port_text = portText.getText().toString();
+    /*
         String host = ipText.getText().toString();
-        int port = Integer.parseInt(portText.getText().toString());
+        int port = Integer.parseInt(port_text);
+    */
+        String host = "192.168.1.106";
+        int port = 2020;
 
-        mobileUniverse.setArduSocket(host, port);
-        debugText.setText(debugText.getText() + "\n" + "Connected to Socket");
-    }
+        boolean status = commandSocket.connect(host, port);
 
-    public void onClickArduino(View view) {
-        mobileUniverse.setControlDroid(usbManager);
-        usbDevice = mobileUniverse.findArduinoDevice();
-
-        if (usbDevice != null) {
-            usbManager.requestPermission(usbDevice, pendingIntent);
+        if (status) {
+            display("Host " + host + " connected.");
+            display("Port " + port + " connected.");
+        } else {
+            display("Invalid connection. Please try again.");
         }
 
-        debugText.setText(debugText.getText() + "\n" + "Connected to Arduino");
     }
 
-    public void onClickStart(View view) throws IOException {
-        mobileUniverse.init();
-        debugText.setText(debugText.getText() + "\n" + "Starting");
+    public class ListenThread extends Thread {
+        @Override
+        public void run() {
+            display("Listening...\n");
+
+            String data = commandSocket.getMessage();
+
+            while (data != null) {
+                sendCommandToArduino(data);
+                data = commandSocket.getMessage();
+            }
+
+            display("Terminado.");
+        }
+    }
+
+    public void onClickStart(View view) {
+        display("Entered.\n");
+        listenThread.start();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        arduSocket.setArduinoListener(this);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        arduSocket.unsetArduinoListener();
+        arduSocket.close();
+    }
+
+    @Override
+    public void onArduinoAttached(UsbDevice device) {
+        display("Arduino attached!");
+        arduSocket.open(device);
+    }
+
+    @Override
+    public void onArduinoDetached() {
+        display("Arduino detached");
+    }
+
+    @Override
+    public void onArduinoMessage(byte[] bytes) {
+        display("> "+new String(bytes));
+    }
+
+    @Override
+    public void onArduinoOpened() {
+        // String str = "Hello World !";
+        // arduSocket.send(str.getBytes());
+        display("Arduino opened.");
+    }
+
+    @Override
+    public void onUsbPermissionDenied() {
+        display("Permission denied... New attempt in 3 sec");
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                arduSocket.reopen();
+            }
+        }, 3000);
+    }
+
+    public void display(final String message){
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                debugText.append(message+"\n");
+            }
+        });
+    }
+
+    public void sendCommandToArduino(String instruction) {
+        arduSocket.send(instruction.getBytes());
     }
 }
