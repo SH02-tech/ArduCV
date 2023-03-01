@@ -3,6 +3,7 @@
 import cv2
 import mediapipe as mp
 import socket
+import time
 
 from Direction import Direction
 
@@ -46,35 +47,36 @@ class VideoCommander:
                             else:
                                 order = Direction.RIGHT
                     else:
-                        order = Direction.REST
+                        order = ""
         return order
 
     def SendOrder(self):
         order = self.CaptureOrder()
-        msg = ""
-
-        if order == Direction.FORWARD:
-            msg = "f"
-        elif order == Direction.LEFT:
-            msg = "l"
-        elif order == Direction.RIGHT:
-            msg = "r"
         
-        if msg != "":
-            self.clientsocket.send(bytes(msg,"utf-8"))
+        if order != "":
+            self.clientsocket.send(str(order).encode("UTF-8"))
             return True
         else:
             return False
 
 if __name__ == "__main__":
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("192.168.1.103", 1234))
-    s.listen(5)
+    host_ip = socket.gethostbyname(socket.gethostname())
+    port = 2020
 
-    c = VideoCommander(cv2.VideoCapture(0), s)
+    print("IP:", host_ip)
+    print("Port: ", port)
+    print("Esperando conexion...")
+
+    serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    serverSocket.bind((host_ip,port))
+    serverSocket.listen()
+    (clientConnected, clientAddress) = serverSocket.accept();
+
+    c = VideoCommander(cv2.VideoCapture(0), serverSocket)
 
     print("Executing")
+
     while True:
-        print(c.SendOrder())
+        c.SendOrder()
+        time.sleep(0.1)
