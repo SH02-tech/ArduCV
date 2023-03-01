@@ -1,7 +1,10 @@
 from enum import Enum
 
 class Direction(Enum):
-    FORWARD = 0x1
-    RIGHT = 0x2
-    LEFT = 0x4
-    REST = -1
+
+    def __str__(self):
+        return str(self.value)
+
+    FORWARD = "F\n"
+    RIGHT = "R\n"
+    LEFT = "L\n"
