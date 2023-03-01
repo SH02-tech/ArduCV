@@ -1,34 +1,33 @@
 #define LMOTOR 11
 #define RMOTOR 13
 #define BAUDRATE 9600
-#define DEFAULTCHAR '0'
+#define DEFAULTSIGNAL 0
+#define DELAYMSEG 100
+
+char t = DEFAULTSIGNAL;
  
 void setup() {
-  pinMode(RMOTOR,OUTPUT);   
-  pinMode(LMOTOR,OUTPUT);   
+  pinMode(RMOTOR, OUTPUT);   
+  pinMode(LMOTOR, OUTPUT);   
   Serial.begin(BAUDRATE);
- 
 }
  
 void loop() {
-  char t;
-  
-  if(Serial.available()){
-    t = Serial.read();
-    Serial.println(t);
+
+  if (!Serial.available()) {
+    digitalWrite(LMOTOR, LOW);
+    digitalWrite(RMOTOR, LOW);
+
+    while(!Serial.available()); // Esperamos hasta que haya algún mensaje. 
   }
+
+  t = Serial.read();
+
+  int lstatus = (t == 'F' || t == 'L') ? HIGH : LOW;
+  int rstatus = (t == 'F' || t == 'R') ? HIGH : LOW;
  
-  if(t == 'f'){             //move forward(all motors rotate in forward direction)
-    digitalWrite(LMOTOR,HIGH);
-    digitalWrite(RMOTOR,HIGH);
-  } else if(t == 'l'){      //turn right (left side motors rotate in forward direction, right side motors doesn't rotate)
-    digitalWrite(LMOTOR,HIGH);
-  } else if(t == 'r'){      //turn left (right side motors rotate in forward direction, left side motors doesn't rotate)
-    digitalWrite(RMOTOR,HIGH);
-  } else {                  //STOP (all motors stop)
-    digitalWrite(LMOTOR,LOW);
-    digitalWrite(RMOTOR,LOW);
-  }
-  delay(500);
-  t = DEFAULTCHAR;
+  digitalWrite(LMOTOR, lstatus);
+  digitalWrite(RMOTOR, rstatus);
+
+  delay(DELAYMSEG);
 }
